@@ -1,0 +1,78 @@
+<?php
+if(!defined("IN_MYBB")) {
+    die("Direct initialization of this file is not allowed.");
+}
+
+// Plugin Info
+function request_limiter_info() {
+    return [
+        "name"          => "Request Limiter",
+        "description"   => "Limits the number of page requests per member per minute (e.g., 5 requests/minute).",
+        "website"       => "https://your-site.com",
+        "author"        => "ChatGPT",
+        "authorsite"    => "https://openai.com",
+        "version"       => "1.0",
+        "compatibility" => "18*"
+    ];
+}
+
+// Activate plugin
+function request_limiter_activate() {
+    global $db;
+
+    if(!$db->field_exists("request_tracker", "datacache")) {
+        // nothing to add, uses cache table
+    }
+}
+
+// Deactivate plugin
+function request_limiter_deactivate() {
+    // nothing to clean up
+}
+
+// Main Hook
+$plugins->add_hook("global_start", "request_limiter_check");
+
+function request_limiter_check() {
+    global $mybb, $cache;
+
+    // --- Settings ---
+    $limit_per_minute = 5; // max 5 requests per minute
+    $bypass_groups = [4, 3]; // Admins (4), Super Mods (3)
+    $user = $mybb->user;
+
+    // Skip guests or bypass groups
+    if(!$user['uid'] || in_array($user['usergroup'], $bypass_groups)) {
+        return;
+    }
+
+    $uid = (int)$user['uid'];
+    $time = TIME_NOW;
+    $cache_key = "req_limit_{$uid}";
+
+    // Load cache
+    $tracker = $cache->read($cache_key);
+    if(!$tracker) {
+        $tracker = [];
+    }
+
+    // Clean up old entries (older than 60s)
+    $tracker = array_filter($tracker, function($t) use ($time) {
+        return ($time - $t) < 60;
+    });
+
+    // Add current request
+    $tracker[] = $time;
+
+    // Count
+    $req_count = count($tracker);
+
+    // Save updated tracker
+    $cache->update($cache_key, $tracker);
+
+    // Check limit
+    if($req_count > $limit_per_minute) {
+        error("Too many requests. Please wait a moment before continuing.");
+        exit;
+    }
+}
